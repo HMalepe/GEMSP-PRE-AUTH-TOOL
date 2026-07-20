@@ -1,0 +1,19 @@
+{
+  "name": "gems-preauth-tool",
+  "private": true,
+  "version": "0.1.0",
+  "description": "GEMS Pre-Authorisation Decision Engine — internal tool (no live GEMS/Medscheme integration)",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace backend",
+    "dev": "npm run dev --workspace backend",
+    "test": "npm test --workspace backend",
+    "migrate": "npm run migrate --workspace backend"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

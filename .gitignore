@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.local
+coverage/
+
+# Phase-0 acquisition workspace: raw/scanned source docs and OCR intermediates
+# are large and not source code — keep the tracker and structured outputs,
+# not the raw PDFs/images.
+data/phase0/raw/
+data/phase0/ocr-staging/
