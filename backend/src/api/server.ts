@@ -11,6 +11,7 @@ import { persistAuthDecision } from './persist-decision.js';
 import {
   getMember,
   searchIcd10,
+  searchModifier,
   searchNappi,
   searchNetworkProvider,
   searchTariff,
@@ -159,6 +160,10 @@ export function createServer(_config: AppConfig, pool?: Pool): Express {
   });
   app.get('/reference-data/network-providers', async (req, res) => {
     const results = await searchNetworkProvider(requireDb(), parseQueryParam(req.query.q), parseYearParam(req.query.year));
+    res.json(results);
+  });
+  app.get('/reference-data/modifiers', async (req, res) => {
+    const results = await searchModifier(requireDb(), parseQueryParam(req.query.q), parseYearParam(req.query.year));
     res.json(results);
   });
 

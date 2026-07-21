@@ -75,6 +75,21 @@ export async function searchNetworkProvider(pool: Pool, query: string, benefitYe
   return rows.map((r) => ({ practiceNo: r.practice_no, providerType: r.provider_type, networkMembership: r.network_membership }));
 }
 
+export interface ModifierSearchResult {
+  code: string;
+  effectRule: string;
+}
+
+export async function searchModifier(pool: Pool, query: string, benefitYear: number): Promise<ModifierSearchResult[]> {
+  const { rows } = await pool.query(
+    `SELECT code, effect_rule FROM modifier
+     WHERE benefit_year = $1 AND (code ILIKE $2 OR effect_rule ILIKE $2)
+     ORDER BY code LIMIT ${SEARCH_LIMIT}`,
+    [benefitYear, `%${query}%`],
+  );
+  return rows.map((r) => ({ code: r.code, effectRule: r.effect_rule }));
+}
+
 export interface MemberLookupResult {
   memberId: string;
   optionCode: string;

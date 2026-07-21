@@ -59,6 +59,21 @@ Phase 0 (real CMS PMB codes, OCR'd Annexure B/C, MPL/DRP data) is still
 not acquired — everything above runs on placeholder fixture data. See
 `docs/implementation-companion.md` Part A and `data/phase0/tracker.md`.
 
+**Consultant front-end**: all five screens from Implementation Companion
+Part C, wired to the real API — New authorisation request (keyboard-first,
+every coded field autocompletes against reference data, no free-text
+entry), Decision result + evidence trail (colour-coded banner, always-on
+money line, collapsible gate-by-gate pass/fail evidence), Review queue
+(pre-assembled evidence, resolve with mandatory reason), Override
+(mandatory reason, writes to the immutable `decision_override` log), and
+History & audit lookup (search by member/date/auth id/code, full decision
+object + rules_version). Verified end-to-end in a real browser (Playwright
+against the built app, not just typechecked): submit -> approve, submit ->
+route -> resolve, override, and history search all confirmed working
+against live Postgres data. Deliberately not built, per Companion §C.7: a
+member-facing portal, free-text code entry, autonomous ML approval,
+batch/bulk processing, or a rules-editing UI.
+
 ## Getting started
 
 Requires a local Postgres instance (see `backend/.env.example` for the
@@ -68,10 +83,11 @@ for the integration test suite, both defaulting to `postgres/postgres` on
 
 ```
 npm install
-npm run build                                  # backend
+npm run build                                  # backend + frontend
 npm run migrate --workspace backend -- up      # apply schema to DATABASE_URL
 npm run db:seed --workspace backend            # fixture members (plain SQL)
 npm run seed:fixtures --workspace backend      # fixture reference data, via the ingestion pipeline
-npm run dev --workspace backend                # POST /authorisations, GET/POST /review-queue*, GET /health
+npm run dev --workspace backend                # backend on :3000
+npm run dev --workspace frontend               # frontend on :5173, proxies /api to the backend
 npm test --workspace backend                   # unit + golden-cases + integration (needs Postgres — see test:unit/test:golden for DB-free subsets)
 ```

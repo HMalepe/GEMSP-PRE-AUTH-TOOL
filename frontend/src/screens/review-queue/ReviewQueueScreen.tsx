@@ -1,13 +1,145 @@
+import { useEffect, useState } from 'react';
+import { ApiError, getReviewQueueItem, listReviewQueue, resolveReviewQueueItem } from '../../api/client';
+import type { QueueItemDetail, QueueItemSummary } from '../../api/types';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
+
+function formatAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 /**
- * Screen 3 — Review queue (Implementation Companion §C.4). Lists routed
- * cases with reason-for-routing and pre-assembled evidence; this is the
- * Layer-B human-in-the-loop surface (Technical Build Spec §5).
+ * Screen 3 — Review queue (Implementation Companion §C.4). ROUTEd cases,
+ * oldest first (no clinical-priority signal exists in v1 to sort by
+ * instead — see backend/src/triage/queue.ts). Selecting a case shows its
+ * pre-assembled evidence and the resolve form.
  */
 export function ReviewQueueScreen() {
+  const [items, setItems] = useState<QueueItemSummary[] | null>(null);
+  const [selected, setSelected] = useState<QueueItemDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [reviewer] = useCurrentUser();
+  const [outcome, setOutcome] = useState<'APPROVED' | 'DECLINED' | 'MORE_INFO_REQUESTED'>('APPROVED');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  function refresh() {
+    listReviewQueue()
+      .then(setItems)
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load review queue'));
+  }
+
+  useEffect(refresh, []);
+
+  function openItem(authId: string) {
+    setFormError(null);
+    setReason('');
+    getReviewQueueItem(authId)
+      .then(setSelected)
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load item'));
+  }
+
+  async function handleResolve(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selected) return;
+    if (!reviewer.trim()) {
+      setFormError('Set your consultant name (top right) before resolving a case.');
+      return;
+    }
+    if (!reason.trim()) {
+      setFormError('A reason is required.');
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      await resolveReviewQueueItem(selected.authId, { reviewer: reviewer.trim(), outcome, reason: reason.trim() });
+      setSelected(null);
+      refresh();
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : 'Failed to resolve item');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <section>
+    <div>
       <h1>Review queue</h1>
-      <p>Not yet implemented — Layer B triage is not built for v1 (Technical Build Spec §5.2).</p>
-    </section>
+      {error && <div className="error-banner">{error}</div>}
+
+      {items && items.length === 0 && <p className="empty-state">Nothing pending review.</p>}
+
+      {items && items.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th>Reason for routing</th>
+              <th>Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.authId} className="clickable" onClick={() => openItem(item.authId)}>
+                <td>{item.memberId}</td>
+                <td>{item.reasonForRouting}</td>
+                <td title={item.createdAt}>{formatAge(item.createdAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {selected && (
+        <div className="card">
+          <h2>Case {selected.authId}</h2>
+          <p>
+            <strong>Member:</strong> {selected.memberId} · <strong>Rules version:</strong> {selected.rulesVersion}
+          </p>
+          <p>
+            <strong>Codes:</strong> {Object.entries(selected.codes).map(([k, v]) => `${k}=${v ?? '—'}`).join(', ')}
+          </p>
+          <h2>Evidence</h2>
+          <ol className="evidence-trail">
+            {selected.reasons.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ol>
+
+          <h2>Resolve</h2>
+          <form onSubmit={handleResolve}>
+            {formError && <div className="error-banner">{formError}</div>}
+            <div className="field-group">
+              <div className="field">
+                <label htmlFor="outcome">Outcome *</label>
+                <select id="outcome" value={outcome} onChange={(e) => setOutcome(e.target.value as typeof outcome)}>
+                  <option value="APPROVED">Approve</option>
+                  <option value="DECLINED">Decline</option>
+                  <option value="MORE_INFO_REQUESTED">Request more info</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="reason">Reason *</label>
+                <textarea id="reason" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} required />
+              </div>
+            </div>
+            <div className="button-row">
+              <button type="submit" disabled={submitting}>
+                {submitting ? 'Submitting…' : 'Submit resolution'}
+              </button>
+              <button type="button" className="secondary" onClick={() => setSelected(null)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
   );
 }
