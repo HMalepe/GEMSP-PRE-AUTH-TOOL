@@ -18,8 +18,8 @@ export async function persistAuthDecision(pool: Pool, request: AuthRequest, deci
 
   await pool.query(
     `INSERT INTO auth_decision
-       (auth_id, member_id, codes, decision, funding_source, co_payment, reimbursement_basis, length_of_stay, reasons, rules_version, caveat)
-     VALUES ($1, $2, $3::jsonb, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11)`,
+       (auth_id, member_id, codes, decision, funding_source, co_payment, reimbursement_basis, length_of_stay, reasons, gate_results, rules_version, caveat)
+     VALUES ($1, $2, $3::jsonb, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12)`,
     [
       decision.authId,
       decision.memberId,
@@ -30,6 +30,7 @@ export async function persistAuthDecision(pool: Pool, request: AuthRequest, deci
       decision.reimbursementBasis,
       decision.lengthOfStay ? JSON.stringify(decision.lengthOfStay) : null,
       JSON.stringify(decision.reasons),
+      JSON.stringify(decision.gateResults),
       decision.rulesVersion,
       decision.caveat,
     ],

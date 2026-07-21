@@ -16,6 +16,21 @@ export interface LengthOfStay {
   level: string;
 }
 
+/**
+ * Per-gate evidence for Screen 2's evidence trail (Implementation
+ * Companion §C.3: "the ordered gate reasons... each with a pass/fail
+ * marker"). Additive to the §4.3 contract, not a replacement for it —
+ * `reasons` on AuthDecision stays the canonical flat list; this is the
+ * structure it's derived from.
+ */
+export interface GateResultSummary {
+  gateNumber: number;
+  gateName: string;
+  outcome: string;
+  passed: boolean;
+  reason: string;
+}
+
 export interface AuthDecision {
   decision: DecisionOutcome;
   authId: string;
@@ -25,6 +40,7 @@ export interface AuthDecision {
   reimbursementBasis: string | null;
   lengthOfStay: LengthOfStay | null;
   reasons: string[];
+  gateResults: GateResultSummary[];
   rulesVersion: string;
   createdAt: string;
   caveat: string;

@@ -1,5 +1,18 @@
-import { DEFAULT_CAVEAT, type AuthDecision, type DecisionOutcome } from '../domain/decision.js';
+import { DEFAULT_CAVEAT, type AuthDecision, type DecisionOutcome, type GateResultSummary } from '../domain/decision.js';
 import type { AuthRequest, GateOutcome, GateResult, ReferenceData } from './types.js';
+
+/** CONTINUE/CONTINUE_WITH_COPAY are a gate letting the request through; APPROVE_WITH_COPAY is Gate 9's own pass. Everything else is that gate stopping the request. */
+const PASSING_OUTCOMES: ReadonlySet<GateOutcome> = new Set(['CONTINUE', 'CONTINUE_WITH_COPAY', 'APPROVE_WITH_COPAY']);
+
+function toGateResultSummary(result: GateResult): GateResultSummary {
+  return {
+    gateNumber: result.gateNumber,
+    gateName: result.gateName,
+    outcome: result.outcome,
+    passed: PASSING_OUTCOMES.has(result.outcome),
+    reason: result.reason,
+  };
+}
 
 function outcomeToDecision(gateOutcome: GateOutcome): DecisionOutcome {
   switch (gateOutcome) {
@@ -74,6 +87,7 @@ export function buildDecision(params: {
     reimbursementBasis: final.outcome === 'APPROVE_WITH_COPAY' ? '100% Scheme Rate' : null,
     lengthOfStay: resolveLengthOfStay(final.outcome, request),
     reasons: results.map((r) => r.reason),
+    gateResults: results.map(toGateResultSummary),
     rulesVersion,
     createdAt: new Date().toISOString(),
     caveat: DEFAULT_CAVEAT,
