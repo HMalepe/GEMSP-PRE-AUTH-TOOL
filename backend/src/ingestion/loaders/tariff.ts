@@ -29,6 +29,11 @@ const DEFINITION: DatasetDefinition = {
   },
 };
 
+// category values are deliberately drawn from the same vocabulary as
+// benefit_limit.benefit_type (see benefit-limit.ts) — Gate 4 resolves a
+// benefit_type straight from tariff.category, and §2.1 has no separate
+// mapping table between the two, so the two columns share one enum by
+// convention.
 const FIXTURE_ROWS: Record<string, unknown>[] = [
   {
     code: 'PLACEHOLDER-GASTRO-01',
@@ -40,7 +45,7 @@ const FIXTURE_ROWS: Record<string, unknown>[] = [
     code: 'PLACEHOLDER-HIP-01',
     description: 'PLACEHOLDER — total hip replacement',
     requires_preauth: true,
-    category: 'joint replacement',
+    category: 'SURGICAL_PROCEDURES',
   },
   {
     code: 'PLACEHOLDER-GP-CONSULT',
@@ -55,6 +60,6 @@ export async function loadTariffFixtures(pool: Pool, benefitYear = 2025): Promis
     benefitYear,
     effectiveFrom: `${benefitYear}-01-01`,
     sourceDoc: 'FIXTURE — GEMS/Medikredit Tariff Files, not yet acquired (no Companion A.1 row — add one)',
-    checksum: `fixture-tariff-${benefitYear}`,
+    checksum: `fixture-tariff-${benefitYear}-v2`,
   });
 }
