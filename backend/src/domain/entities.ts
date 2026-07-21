@@ -87,9 +87,11 @@ export interface NetworkProvider {
 }
 
 export interface CoPaymentRule {
-  trigger: string;
+  triggerCode: string;
   optionCode: string;
   amountOrPct: number;
+  /** AMOUNT = flat rand value (R1,000 / R15,000); PCT = percentage of a request's quoted amount (30%). */
+  basis: 'AMOUNT' | 'PCT';
   benefitYear: number;
 }
 
@@ -98,6 +100,7 @@ export interface WaitingPeriodRule {
   gwpMonths: number;
   cswpMonths: number;
   pmbCovered: boolean;
+  benefitYear: number;
 }
 
 /** Every dataset load is versioned; nothing enters the engine unversioned (§3.2). */

@@ -193,6 +193,7 @@ exports.up = (pgm) => {
       trigger_code      TEXT NOT NULL,
       option_code       TEXT NOT NULL,
       amount_or_pct     NUMERIC(12, 2) NOT NULL,
+      basis             TEXT NOT NULL DEFAULT 'AMOUNT' CHECK (basis IN ('AMOUNT', 'PCT')),
       benefit_year      INTEGER NOT NULL,
       rule_version_id   UUID NOT NULL REFERENCES rule_version (version_id),
       UNIQUE (trigger_code, option_code, benefit_year),

@@ -35,14 +35,20 @@ scripts/    Dataset load / promote / rollback CLIs
 ## Status
 
 **Phase 1 complete**: Postgres schema for every §2.1 entity, a generic
-ingestion pipeline (stage -> validate -> human-verify -> promote), fixture
-loaders for every reference table, and a stub `POST /authorisations`
-endpoint returning a hard-coded decision object. Phase 0 (real CMS PMB
-codes, OCR'd Annexure B/C, MPL/DRP data) is still not acquired — see
+ingestion pipeline (stage -> validate -> human-verify -> promote), and
+fixture loaders for every reference table. Phase 0 (real CMS PMB codes,
+OCR'd Annexure B/C, MPL/DRP data) is still not acquired — see
 `docs/implementation-companion.md` Part A and `data/phase0/tracker.md`.
-Every loader currently runs placeholder fixture data through the pipeline
-to prove it works end to end; gate logic (Layer A) is still stubbed and
-untouched — Phase 2 wires the gates to this schema once real data lands.
+
+**Layer A (rules core) implemented**: all 10 gates (`backend/src/engine`),
+the late-joiner-penalty formula, the medicine co-payment stack and flat
+co-payment triggers, and full §4.3 decision-object assembly — as pure
+functions over an already-resolved `ReferenceData` bundle, so the
+10-case golden regression suite (`backend/test/golden-cases`) runs
+without a database. `POST /authorisations` still returns Phase 1's
+hard-coded stub, not a real decision — wiring a DB-backed resolver
+between the API and `evaluateAuthorisation()` is the next step, along
+with Layer B (still untouched).
 
 ## Getting started
 
@@ -57,6 +63,6 @@ npm run build                                  # backend
 npm run migrate --workspace backend -- up      # apply schema to DATABASE_URL
 npm run db:seed --workspace backend            # fixture members (plain SQL)
 npm run seed:fixtures --workspace backend      # fixture reference data, via the ingestion pipeline
-npm run dev --workspace backend                # POST /authorisations, GET /health
-npm test --workspace backend                   # unit + integration (needs Postgres — see test:unit for a DB-free subset)
+npm run dev --workspace backend                # POST /authorisations (still the Phase 1 stub), GET /health
+npm test --workspace backend                   # unit + golden-cases + integration (needs Postgres — see test:unit/test:golden for DB-free subsets)
 ```

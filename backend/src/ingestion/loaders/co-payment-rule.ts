@@ -14,7 +14,7 @@ import { loadFixtureDataset, type DatasetDefinition, type LoadFixtureResult } fr
 const DEFINITION: DatasetDefinition = {
   dataset: 'co_payment_rule',
   targetTable: 'co_payment_rule',
-  columns: ['trigger_code', 'option_code', 'amount_or_pct'],
+  columns: ['trigger_code', 'option_code', 'amount_or_pct', 'basis'],
   rowKey: (row) => `${row.trigger_code}:${row.option_code}`,
   validateRow: (row) => {
     const errors: string[] = [];
@@ -27,15 +27,18 @@ const DEFINITION: DatasetDefinition = {
     if (typeof row.amount_or_pct !== 'number' || row.amount_or_pct < 0) {
       errors.push('amount_or_pct must be a non-negative number');
     }
+    if (row.basis !== 'AMOUNT' && row.basis !== 'PCT') {
+      errors.push('basis must be AMOUNT or PCT');
+    }
     return errors;
   },
 };
 
 const FIXTURE_ROWS: Record<string, unknown>[] = [
-  { trigger_code: 'LATE_AUTH', option_code: 'BERYL', amount_or_pct: 1000 },
-  { trigger_code: 'ELECTIVE_GASTRO_COLONOSCOPY_2026', option_code: 'BERYL', amount_or_pct: 1000 },
-  { trigger_code: 'NON_NETWORK_HOSPITAL', option_code: 'TANZANITE_ONE', amount_or_pct: 15000 },
-  { trigger_code: 'NON_DSP', option_code: 'TANZANITE_ONE', amount_or_pct: 30 },
+  { trigger_code: 'LATE_AUTH', option_code: 'BERYL', amount_or_pct: 1000, basis: 'AMOUNT' },
+  { trigger_code: 'ELECTIVE_GASTRO_COLONOSCOPY_2026', option_code: 'BERYL', amount_or_pct: 1000, basis: 'AMOUNT' },
+  { trigger_code: 'NON_NETWORK_HOSPITAL', option_code: 'TANZANITE_ONE', amount_or_pct: 15000, basis: 'AMOUNT' },
+  { trigger_code: 'NON_DSP', option_code: 'TANZANITE_ONE', amount_or_pct: 30, basis: 'PCT' },
 ];
 
 export async function loadCoPaymentRuleFixtures(pool: Pool, benefitYear = 2025): Promise<LoadFixtureResult> {

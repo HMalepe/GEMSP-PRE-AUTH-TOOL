@@ -1,3 +1,5 @@
+import type { AuthDecision } from '../domain/decision.js';
+import { buildDecision } from './decision.js';
 import { gate0MemberEligible } from './gates/gate0-member-eligible.js';
 import { gate1AuthRequired } from './gates/gate1-auth-required.js';
 import { gate2Icd10Valid } from './gates/gate2-icd10-valid.js';
@@ -8,12 +10,13 @@ import { gate6NetworkDsp } from './gates/gate6-network-dsp.js';
 import { gate7WaitingPeriod } from './gates/gate7-waiting-period.js';
 import { gate8ProtocolStepTherapy } from './gates/gate8-protocol-step-therapy.js';
 import { gate9CopaymentOutput } from './gates/gate9-copayment-output.js';
-import type { Gate, GateContext, GateResult } from './types.js';
+import type { AuthRequest, Gate, GateOutcome, GateResult, ReferenceData } from './types.js';
 
 /**
- * The fixed gate order (Technical Build Spec §4.2). This sequence is code,
- * not data — only the thresholds each gate evaluates against are
- * versioned rows.
+ * The fixed gate order (Technical Build Spec §4.2 / Rules-Engine Spec §3).
+ * PMB (Gate 3) runs before the benefit check (Gate 4) deliberately — do
+ * not reorder. This sequence is code, not data — only the thresholds
+ * each gate evaluates against (in `ReferenceData`) are versioned rows.
  */
 export const GATES: readonly Gate[] = [
   gate0MemberEligible,
@@ -28,32 +31,53 @@ export const GATES: readonly Gate[] = [
   gate9CopaymentOutput,
 ];
 
+/** Everything except CONTINUE/CONTINUE_WITH_COPAY stops the sequence. */
+const TERMINAL_OUTCOMES: ReadonlySet<GateOutcome> = new Set([
+  'DECLINE',
+  'ROUTE',
+  'SKIP_TO_CLAIM_RULES',
+  'APPROVE_WITH_COPAY',
+]);
+
 export interface GateSequenceResult {
   results: GateResult[];
   final: GateResult;
 }
 
 /**
- * Runs gates in fixed order, fail-fast: the first non-CONTINUE outcome
- * stops the sequence (Technical Build Spec §4.2). `gates` defaults to the
- * real GATES array but is injectable so callers (and tests) can supply
- * mocks without touching the Phase-0-blocked stubs.
+ * Runs gates in fixed order, fail-fast: the first terminal outcome stops
+ * the sequence (Technical Build Spec §4.2). `gates` defaults to the real
+ * GATES array but is injectable so tests can supply mocks. Purely
+ * synchronous — gates never do I/O, `ref` is already fully resolved.
  */
-export async function runGateSequence(
-  ctx: GateContext,
+export function runGateSequence(
+  request: AuthRequest,
+  ref: ReferenceData,
   gates: readonly Gate[] = GATES,
-): Promise<GateSequenceResult> {
+): GateSequenceResult {
   const results: GateResult[] = [];
   for (const gate of gates) {
-    const result = await gate(ctx);
+    const result = gate(request, ref, results);
     results.push(result);
-    if (result.outcome !== 'CONTINUE') {
+    if (TERMINAL_OUTCOMES.has(result.outcome)) {
       return { results, final: result };
     }
   }
   throw new Error(
-    'Gate sequence completed without a terminal outcome — the last gate must never return CONTINUE',
+    'Gate sequence completed without a terminal outcome — the last gate must never return CONTINUE or CONTINUE_WITH_COPAY',
   );
 }
 
-export type { Gate, GateContext, GateOutcome, GateResult } from './types.js';
+/** Runs the full gate sequence and assembles the §4.3 decision object. */
+export function evaluateAuthorisation(params: {
+  authId: string;
+  request: AuthRequest;
+  ref: ReferenceData;
+  rulesVersion: string;
+}): AuthDecision {
+  const { authId, request, ref, rulesVersion } = params;
+  const { results, final } = runGateSequence(request, ref);
+  return buildDecision({ authId, request, ref, results, final, rulesVersion });
+}
+
+export type { AuthRequest, Gate, GateOutcome, GateResult, ReferenceData } from './types.js';

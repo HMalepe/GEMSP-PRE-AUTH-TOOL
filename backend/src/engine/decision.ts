@@ -1,5 +1,5 @@
 import { DEFAULT_CAVEAT, type AuthDecision, type DecisionOutcome } from '../domain/decision.js';
-import type { GateOutcome, GateResult } from './types.js';
+import type { AuthRequest, GateOutcome, GateResult, ReferenceData } from './types.js';
 
 function outcomeToDecision(gateOutcome: GateOutcome): DecisionOutcome {
   switch (gateOutcome) {
@@ -12,9 +12,9 @@ function outcomeToDecision(gateOutcome: GateOutcome): DecisionOutcome {
     case 'SKIP_TO_CLAIM_RULES':
       return 'NOT_REQUIRED';
     case 'CONTINUE':
-      // Gate 9 always terminates the sequence by emitting the decision
-      // (Technical Build Spec §4.2 row 9) — reaching here with CONTINUE
-      // as the *final* outcome means gate 9 itself resolved to APPROVE.
+    case 'CONTINUE_WITH_COPAY':
+      // Defensive only — runGateSequence never lets either reach here as
+      // the *final* outcome (both are non-terminal; see engine/index.ts).
       return 'APPROVE';
     default: {
       const exhaustive: never = gateOutcome;
@@ -23,28 +23,56 @@ function outcomeToDecision(gateOutcome: GateOutcome): DecisionOutcome {
   }
 }
 
+function resolveFundingSource(final: GateOutcome, ref: ReferenceData): AuthDecision['fundingSource'] {
+  if (final !== 'APPROVE_WITH_COPAY') {
+    return null;
+  }
+  if (ref.icd10?.isPmb) {
+    return 'RISK_PMB';
+  }
+  // Ruby is GEMS's PMSA option; PMBs may not be paid from PMSA there
+  // (docs/gems-annexures-compilation.md §2), so non-PMB Ruby claims fund
+  // from PMSA and everything else defaults to day-to-day.
+  if (ref.option.optionCode === 'RUBY') {
+    return 'PMSA';
+  }
+  return 'DAY_TO_DAY';
+}
+
+function resolveLengthOfStay(final: GateOutcome, request: AuthRequest): AuthDecision['lengthOfStay'] {
+  if (final !== 'APPROVE_WITH_COPAY') {
+    return null;
+  }
+  if (request.setting !== 'IN_HOSPITAL' || request.requestedLengthOfStayDays === undefined) {
+    return null;
+  }
+  return {
+    days: request.requestedLengthOfStayDays,
+    level: request.requestedLevelOfCare ?? 'general ward',
+  };
+}
+
 /**
  * Assembles the engine output contract (Technical Build Spec §4.3) from a
- * completed gate sequence. Funding source, reimbursement basis and length
- * of stay are left null pending Phase 2 — they depend on reference data
- * (PMB/benefit gates) that isn't loaded yet.
+ * completed gate sequence.
  */
 export function buildDecision(params: {
   authId: string;
-  memberId: string;
+  request: AuthRequest;
+  ref: ReferenceData;
   results: GateResult[];
   final: GateResult;
   rulesVersion: string;
 }): AuthDecision {
-  const { authId, memberId, results, final, rulesVersion } = params;
+  const { authId, request, ref, results, final, rulesVersion } = params;
   return {
     decision: outcomeToDecision(final.outcome),
     authId,
-    memberId,
-    fundingSource: null,
+    memberId: request.memberId,
+    fundingSource: resolveFundingSource(final.outcome, ref),
     coPayment: final.copay ?? null,
-    reimbursementBasis: null,
-    lengthOfStay: null,
+    reimbursementBasis: final.outcome === 'APPROVE_WITH_COPAY' ? '100% Scheme Rate' : null,
+    lengthOfStay: resolveLengthOfStay(final.outcome, request),
     reasons: results.map((r) => r.reason),
     rulesVersion,
     createdAt: new Date().toISOString(),
