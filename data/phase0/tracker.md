@@ -16,5 +16,19 @@ a versioned live `rule_version` row. Until all rows show VERIFIED, Phase 2
 | Co-payment triggers | GEMS 2025/2026 benefit guides + 'What's New' | Text extract | Low | | | | | | | |
 | Waiting-period + s29A rules | GEMS Underwriting Guide 2025 | Text extract | Low | | | | | | | |
 
+## Rows added during Phase 1 build-out
+
+Discovered while wiring `backend/src/ingestion/loaders` — these are §2.1
+reference tables with no source named anywhere in the original checklist.
+Currently loaded with placeholder fixture data only (see
+`backend/src/ingestion/loaders/README.md`).
+
+| Dataset | Where to get it | Method | Difficulty | Owner | Target date | Acquired? | Loaded to staging? | Validated? | Human-verified by/when | Promoted (rule_version id) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Option definitions (6 GEMS options) | GEMS 2025 Scheme Rules Annexure A | Text extract | Low | | | | | | | |
+| Tariff / RPL procedure codes + preauth flag | Unknown — GEMS/Medikredit Tariff Files (unconfirmed) | TBD | Med | | | | | | | |
+| Network/DSP provider directory | Unknown — separate provider-directory feed, not an annexure | TBD | Med | | | | | | | |
+| Member benefit-balance import | Unknown — ongoing operational feed, not an annual document | TBD | Med | | | | | | | |
+
 Do not let a row sit without both an Owner and a Target date. Treat any
 row with no progress as a project risk.

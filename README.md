@@ -34,18 +34,29 @@ scripts/    Dataset load / promote / rollback CLIs
 
 ## Status
 
-Scaffolding only. Phase 0 (CMS PMB codes, OCR'd Annexure B/C, MPL/DRP data)
-is not yet acquired — see `docs/implementation-companion.md` Part A. Gate
-and loader modules are stubs until that data lands; wiring real decisions
-against placeholder data is explicitly out of scope until then.
+**Phase 1 complete**: Postgres schema for every §2.1 entity, a generic
+ingestion pipeline (stage -> validate -> human-verify -> promote), fixture
+loaders for every reference table, and a stub `POST /authorisations`
+endpoint returning a hard-coded decision object. Phase 0 (real CMS PMB
+codes, OCR'd Annexure B/C, MPL/DRP data) is still not acquired — see
+`docs/implementation-companion.md` Part A and `data/phase0/tracker.md`.
+Every loader currently runs placeholder fixture data through the pipeline
+to prove it works end to end; gate logic (Layer A) is still stubbed and
+untouched — Phase 2 wires the gates to this schema once real data lands.
 
 ## Getting started
 
+Requires a local Postgres instance (see `backend/.env.example` for the
+expected connection strings — `DATABASE_URL` for dev, `TEST_DATABASE_URL`
+for the migration test suite, both defaulting to `postgres/postgres` on
+`127.0.0.1:5432`).
+
 ```
 npm install
-npm run build   # backend
-npm test        # backend unit tests (gate orchestrator sequencing)
+npm run build                                  # backend
+npm run migrate --workspace backend -- up      # apply schema to DATABASE_URL
+npm run db:seed --workspace backend            # fixture members (plain SQL)
+npm run seed:fixtures --workspace backend      # fixture reference data, via the ingestion pipeline
+npm run dev --workspace backend                # POST /authorisations, GET /health
+npm test --workspace backend                   # unit + integration (needs Postgres — see test:unit for a DB-free subset)
 ```
-
-A local Postgres instance and `DATABASE_URL` are required for migrations
-(`npm run migrate`) — see `backend/.env.example`.
