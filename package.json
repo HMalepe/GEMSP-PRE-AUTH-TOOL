@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace backend",
+    "vercel-build": "npm run build --workspace frontend",
     "dev": "npm run dev --workspace backend",
     "test": "npm test --workspace backend",
     "migrate": "npm run migrate --workspace backend"
