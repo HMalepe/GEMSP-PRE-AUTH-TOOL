@@ -57,6 +57,17 @@ export function DecisionResultScreen() {
         <p>
           Auth ID: <code>{detail.auth_id}</code> · Member: {detail.member_id}
         </p>
+        <p>
+          Codes: {Object.entries(detail.codes).map(([k, v]) => `${k}=${v ?? '—'}`).join(', ')}
+          {detail.is_hiv_related && (
+            <>
+              {' '}
+              <span className="badge badge-role-auditor" title="HIV/AIDS confidentiality restriction (Technical Build Spec §7)">
+                HIV-restricted record
+              </span>
+            </>
+          )}
+        </p>
       </div>
 
       {detail.overrides.length > 0 && (

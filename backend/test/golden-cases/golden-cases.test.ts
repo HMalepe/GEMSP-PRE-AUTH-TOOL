@@ -46,6 +46,7 @@ function makeIcd10(overrides: Partial<Icd10> = {}): Icd10 {
     isPmb: false,
     dtpId: null,
     cdlFlag: false,
+    hivFlag: false,
     ...overrides,
   };
 }
@@ -305,4 +306,201 @@ test('10. Bad ICD/procedure pair: ICD-10 code does not resolve -> ROUTE', () => 
   const decision = evaluate(makeRequest({ icd10Code: 'BAD-CODE' }), ref);
 
   assert.equal(decision.decision, 'ROUTE');
+});
+
+/**
+ * Cases 11-18 extend coverage to every pathway named in the Rules-Engine
+ * Spec's decision-object examples beyond the original 10 baseline cases:
+ * PMB sourced from CDL alone (no DTP), a non-PMB chronic (Annexure D
+ * "additional") condition, oncology's two-tier general/specialised-drug
+ * sub-limits, and the HIV/AIDS CDL pathway (docs/gems-annexures-
+ * compilation.md §4/§6). Technical Build Spec §8.1.
+ */
+
+test('11. PMB via CDL only (no DTP): chronic diagnosis, day-to-day chronic benefit exhausted -> APPROVE at PMB entitlement', () => {
+  const ref: ReferenceData = {
+    benefitYear: 2025,
+    member: makeMember(),
+    option: makeOption(),
+    icd10: makeIcd10({ code: 'E11.9', description: 'Type 2 diabetes mellitus', isPmb: true, dtpId: null, cdlFlag: true }),
+    tariff: makeTariff({ category: 'CHRONIC_MEDICINE' }),
+    networkProvider: makeNetworkProvider(),
+    benefitLimits: [makeBenefitLimit({ benefitType: 'CHRONIC_MEDICINE' })],
+    benefitBalances: [makeBenefitBalance({ benefitType: 'CHRONIC_MEDICINE', used: 4429, available: 0 })],
+    coPaymentRules: [],
+    waitingPeriodRules: makeWaitingPeriodRules(),
+  };
+
+  const decision = evaluate(makeRequest(), ref);
+
+  assert.equal(decision.decision, 'APPROVE');
+  assert.equal(decision.fundingSource, 'RISK_PMB');
+  assert.ok(decision.reasons.some((r) => /PMB entitlement/.test(r)), decision.reasons.join(' | '));
+});
+
+test('12. Chronic non-PMB (Annexure D "additional" condition): cdl_flag true but not PMB, benefit exhausted -> DECLINE', () => {
+  const ref: ReferenceData = {
+    benefitYear: 2025,
+    member: makeMember(),
+    option: makeOption(),
+    // cdl_flag=true (it's on an option's additional chronic list) but is_pmb=false — the two flags are independent; only is_pmb unlocks Gate 4's override.
+    icd10: makeIcd10({ code: 'M06.9', description: 'Rheumatoid arthritis, unspecified', isPmb: false, dtpId: null, cdlFlag: true }),
+    tariff: makeTariff({ category: 'CHRONIC_MEDICINE' }),
+    networkProvider: makeNetworkProvider(),
+    benefitLimits: [makeBenefitLimit({ benefitType: 'CHRONIC_MEDICINE' })],
+    benefitBalances: [makeBenefitBalance({ benefitType: 'CHRONIC_MEDICINE', used: 4429, available: 0 })],
+    coPaymentRules: [],
+    waitingPeriodRules: makeWaitingPeriodRules(),
+  };
+
+  const decision = evaluate(makeRequest(), ref);
+
+  assert.equal(decision.decision, 'DECLINE');
+  assert.ok(decision.reasons.some((r) => /exhausted, non-PMB/.test(r)));
+});
+
+test('13. Oncology specialised-drug sub-limit available -> APPROVE, RISK_PMB, R0', () => {
+  const ref: ReferenceData = {
+    benefitYear: 2025,
+    member: makeMember(),
+    option: makeOption(),
+    icd10: makeIcd10({ code: 'C50.9', description: 'Malignant neoplasm of breast', isPmb: true, dtpId: 'DTP-ONC2' }),
+    dtp: { dtpId: 'DTP-ONC2', description: 'Oncology PMB — specialised/biological drugs', pmbLevelOfCare: 'Level 2 specialist oncology unit' },
+    tariff: makeTariff({ category: 'ONCOLOGY_SPECIALISED_DRUGS' }),
+    networkProvider: makeNetworkProvider(),
+    benefitLimits: [makeBenefitLimit({ benefitType: 'ONCOLOGY_SPECIALISED_DRUGS' })],
+    benefitBalances: [makeBenefitBalance({ benefitType: 'ONCOLOGY_SPECIALISED_DRUGS', used: 0, available: 50000 })],
+    coPaymentRules: [],
+    waitingPeriodRules: makeWaitingPeriodRules(),
+  };
+
+  const decision = evaluate(makeRequest(), ref);
+
+  assert.equal(decision.decision, 'APPROVE');
+  assert.equal(decision.fundingSource, 'RISK_PMB');
+  assert.equal(decision.coPayment, null);
+});
+
+test('14. Oncology specialised-drug sub-limit exhausted (general oncology limit untouched) -> APPROVE at PMB entitlement', () => {
+  const ref: ReferenceData = {
+    benefitYear: 2025,
+    member: makeMember(),
+    option: makeOption(),
+    icd10: makeIcd10({ code: 'C50.9', description: 'Malignant neoplasm of breast', isPmb: true, dtpId: 'DTP-ONC2' }),
+    dtp: { dtpId: 'DTP-ONC2', description: 'Oncology PMB — specialised/biological drugs', pmbLevelOfCare: 'Level 2 specialist oncology unit' },
+    tariff: makeTariff({ category: 'ONCOLOGY_SPECIALISED_DRUGS' }),
+    networkProvider: makeNetworkProvider(),
+    // Gate 4 checks the specific benefit_type this tariff resolves to, not
+    // "any oncology limit" — a sibling general-oncology row with room left
+    // does not rescue this: only the PMB override does.
+    benefitLimits: [makeBenefitLimit({ benefitType: 'ONCOLOGY_SPECIALISED_DRUGS' }), makeBenefitLimit({ benefitType: 'ONCOLOGY', subLimit: 292135 })],
+    benefitBalances: [
+      makeBenefitBalance({ benefitType: 'ONCOLOGY_SPECIALISED_DRUGS', used: 336702, available: 0 }),
+      makeBenefitBalance({ benefitType: 'ONCOLOGY', used: 0, available: 292135 }),
+    ],
+    coPaymentRules: [],
+    waitingPeriodRules: makeWaitingPeriodRules(),
+  };
+
+  const decision = evaluate(makeRequest(), ref);
+
+  assert.equal(decision.decision, 'APPROVE');
+  assert.equal(decision.fundingSource, 'RISK_PMB');
+  assert.ok(
+    decision.reasons.some((r) => /PMB entitlement/.test(r) && /Level 2 specialist oncology unit/.test(r)),
+    decision.reasons.join(' | '),
+  );
+});
+
+test('15. HIV/AIDS clean approve: formulary ART, DSP dispensing -> APPROVE, RISK_PMB, R0', () => {
+  const ref: ReferenceData = {
+    benefitYear: 2025,
+    member: makeMember(),
+    option: makeOption(),
+    icd10: makeIcd10({ code: 'B20', description: 'HIV disease', isPmb: true, dtpId: null, cdlFlag: true, hivFlag: true }),
+    tariff: makeTariff({ category: 'CHRONIC_MEDICINE' }),
+    nappi: { nappiCode: 'N-ART-1', product: 'PLACEHOLDER — antiretroviral (formulary)', mplPrice: 300, drpPrice: 300, formularyFlag: true },
+    networkProvider: makeNetworkProvider(),
+    benefitLimits: [],
+    benefitBalances: [],
+    coPaymentRules: [],
+    waitingPeriodRules: makeWaitingPeriodRules(),
+  };
+
+  const decision = evaluate(makeRequest({ nappiCode: 'N-ART-1', quotedAmount: 300, dispensingIsDsp: true, setting: 'OUT_HOSPITAL' }), ref);
+
+  assert.equal(decision.decision, 'APPROVE');
+  assert.equal(decision.fundingSource, 'RISK_PMB');
+  assert.equal(decision.coPayment, null);
+});
+
+test('16. HIV/AIDS off-formulary ART -> APPROVE + 30% OF co-pay (same mechanism as case 6, HIV/CDL pathway)', () => {
+  const ref: ReferenceData = {
+    benefitYear: 2025,
+    member: makeMember(),
+    option: makeOption(),
+    icd10: makeIcd10({ code: 'B20', description: 'HIV disease', isPmb: true, dtpId: null, cdlFlag: true, hivFlag: true }),
+    tariff: makeTariff({ category: 'CHRONIC_MEDICINE' }),
+    nappi: { nappiCode: 'N-ART-OF-1', product: 'PLACEHOLDER — antiretroviral (off-formulary)', mplPrice: 400, drpPrice: null, formularyFlag: false },
+    networkProvider: makeNetworkProvider(),
+    benefitLimits: [],
+    benefitBalances: [],
+    coPaymentRules: [],
+    waitingPeriodRules: makeWaitingPeriodRules(),
+  };
+
+  const decision = evaluate(makeRequest({ nappiCode: 'N-ART-OF-1', quotedAmount: 400, setting: 'OUT_HOSPITAL' }), ref);
+
+  assert.equal(decision.decision, 'APPROVE');
+  assert.equal(decision.coPayment?.amount, 120);
+  assert.match(decision.coPayment?.reason ?? '', /out-of-formulary/);
+});
+
+test('17. HIV/AIDS chronic medicine benefit exhausted -> APPROVE at PMB entitlement (PMB override applies uniformly, not just to oncology/DTP conditions)', () => {
+  const ref: ReferenceData = {
+    benefitYear: 2025,
+    member: makeMember(),
+    option: makeOption(),
+    icd10: makeIcd10({ code: 'B20', description: 'HIV disease', isPmb: true, dtpId: null, cdlFlag: true, hivFlag: true }),
+    tariff: makeTariff({ category: 'CHRONIC_MEDICINE' }),
+    networkProvider: makeNetworkProvider(),
+    benefitLimits: [makeBenefitLimit({ benefitType: 'CHRONIC_MEDICINE' })],
+    benefitBalances: [makeBenefitBalance({ benefitType: 'CHRONIC_MEDICINE', used: 4429, available: 0 })],
+    coPaymentRules: [],
+    waitingPeriodRules: makeWaitingPeriodRules(),
+  };
+
+  const decision = evaluate(makeRequest(), ref);
+
+  assert.equal(decision.decision, 'APPROVE');
+  assert.equal(decision.fundingSource, 'RISK_PMB');
+  assert.ok(decision.reasons.some((r) => /PMB entitlement/.test(r)), decision.reasons.join(' | '));
+});
+
+test('18. PMB within a waiting-period scenario that still covers PMB -> APPROVE, not declined (Gate 7 pmb_covered bypass)', () => {
+  const ref: ReferenceData = {
+    benefitYear: 2025,
+    // >24 months' prior cover selects scenario S29A_3 (gwpMonths=3, pmbCovered=true).
+    member: makeMember({ joinDate: '2025-04-01', priorCoverMonths: 30 }),
+    option: makeOption(),
+    icd10: makeIcd10({ isPmb: true, dtpId: 'DTP-1' }),
+    dtp: { dtpId: 'DTP-1', description: 'Test PMB DTP', pmbLevelOfCare: 'Level 1 public hospital equivalent' },
+    tariff: makeTariff(),
+    networkProvider: makeNetworkProvider(),
+    benefitLimits: [makeBenefitLimit()],
+    benefitBalances: [makeBenefitBalance({ available: 50000 })],
+    coPaymentRules: [],
+    waitingPeriodRules: makeWaitingPeriodRules(),
+  };
+
+  // 2 months since joining — inside the scenario's 3-month GWP window. A
+  // non-PMB request here would DECLINE (see case 4); this one must not.
+  const decision = evaluate(makeRequest({ serviceDate: '2025-06-01' }), ref);
+
+  assert.equal(decision.decision, 'APPROVE');
+  assert.equal(decision.fundingSource, 'RISK_PMB');
+  assert.ok(
+    decision.reasons.some((r) => /waiting period satisfied under PRIOR_COVER_GT_24M_GAP_LT_90D_S29A_3/.test(r)),
+    decision.reasons.join(' | '),
+  );
 });

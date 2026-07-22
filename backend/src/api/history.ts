@@ -18,6 +18,9 @@ export interface AuthDecisionSummaryPayload {
   created_at: string;
   rules_version: string;
   codes: Record<string, unknown>;
+  /** Snapshot of icd10.hiv_flag at decision time — see security/redact.ts. Left visible even when the record itself is redacted, so a restriction reads as a restriction rather than missing data. */
+  is_hiv_related: boolean;
+  created_by: string | null;
 }
 
 const SEARCH_LIMIT = 100;
@@ -49,7 +52,7 @@ export async function searchAuthDecisions(pool: Pool, filters: HistorySearchFilt
 
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
   const { rows } = await pool.query(
-    `SELECT auth_id, member_id, decision, created_at, rules_version, codes
+    `SELECT auth_id, member_id, decision, created_at, rules_version, codes, is_hiv_related, created_by
      FROM auth_decision
      ${where}
      ORDER BY created_at DESC
@@ -64,6 +67,8 @@ export async function searchAuthDecisions(pool: Pool, filters: HistorySearchFilt
     created_at: row.created_at,
     rules_version: row.rules_version,
     codes: row.codes,
+    is_hiv_related: row.is_hiv_related,
+    created_by: row.created_by,
   }));
 }
 
@@ -103,6 +108,7 @@ export async function getAuthDecisionDetail(pool: Pool, authId: string): Promise
   const { rows } = await pool.query(
     `SELECT ad.auth_id, ad.member_id, ad.decision, ad.funding_source, ad.co_payment, ad.reimbursement_basis,
             ad.length_of_stay, ad.reasons, ad.gate_results, ad.rules_version, ad.caveat, ad.created_at, ad.codes,
+            ad.is_hiv_related, ad.created_by,
             ro.reviewer, ro.outcome AS review_outcome, ro.reason AS review_reason, ro.decided_at
      FROM auth_decision ad
      LEFT JOIN review_outcome ro ON ro.auth_id = ad.auth_id
@@ -123,6 +129,8 @@ export async function getAuthDecisionDetail(pool: Pool, authId: string): Promise
     created_at: row.created_at,
     rules_version: row.rules_version,
     codes: row.codes,
+    is_hiv_related: row.is_hiv_related,
+    created_by: row.created_by,
     funding_source: row.funding_source,
     co_payment: row.co_payment,
     reimbursement_basis: row.reimbursement_basis,

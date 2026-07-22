@@ -1,4 +1,6 @@
+import { loadStoredUser } from '../auth/current-user-storage';
 import type {
+  AppUser,
   AuthDecisionDetail,
   AuthDecisionPayload,
   AuthDecisionSummary,
@@ -27,16 +29,27 @@ export class ApiError extends Error {
   }
 }
 
+/** Every call attaches X-User-Id for the currently-selected account (backend/src/security/auth.ts) — a no-op header if none is selected yet, which the backend then rejects with 401. */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const user = loadStoredUser();
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: { 'content-type': 'application/json', ...init?.headers },
+    headers: {
+      'content-type': 'application/json',
+      ...(user ? { 'x-user-id': user.userId } : {}),
+      ...init?.headers,
+    },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new ApiError(body.error ?? `request failed with status ${res.status}`, res.status, body.details);
   }
   return res.json() as Promise<T>;
+}
+
+/** Unauthenticated on the backend on purpose — the account picker needs this before any account is selected. */
+export function listUsers(): Promise<AppUser[]> {
+  return request('/users');
 }
 
 function query(params: Record<string, string | number | undefined>): string {

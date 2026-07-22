@@ -14,7 +14,7 @@ export function OverrideScreen() {
   const { authId } = useParams<{ authId: string }>();
   const navigate = useNavigate();
   const [detail, setDetail] = useState<AuthDecisionDetail | null>(null);
-  const [reviewer] = useCurrentUser();
+  const [user] = useCurrentUser();
   const [overriddenBy, setOverriddenBy] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -28,8 +28,10 @@ export function OverrideScreen() {
   }, [authId]);
 
   useEffect(() => {
-    setOverriddenBy(reviewer);
-  }, [reviewer]);
+    if (user) {
+      setOverriddenBy(user.name);
+    }
+  }, [user]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

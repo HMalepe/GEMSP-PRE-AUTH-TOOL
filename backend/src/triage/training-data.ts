@@ -23,10 +23,10 @@ export interface TrainingExample {
   agreement: boolean | null;
 }
 
-export async function getTrainingExamples(pool: Pool): Promise<TrainingExample[]> {
+export async function getTrainingExamples(pool: Pool, encryptionKey: string): Promise<TrainingExample[]> {
   const { rows } = await pool.query(
     `SELECT
-       ad.auth_id, ad.member_id, ad.motivation_text,
+       ad.auth_id, ad.member_id, pgp_sym_decrypt(ad.motivation_text, $1::text) AS motivation_text,
        lbs.confidence AS suggestion_confidence,
        lbs.recommended_action AS suggestion_recommended_action,
        ro.reviewer, ro.outcome, ro.reason, ro.decided_at
@@ -40,6 +40,7 @@ export async function getTrainingExamples(pool: Pool): Promise<TrainingExample[]
        LIMIT 1
      ) lbs ON true
      ORDER BY ro.decided_at DESC`,
+    [encryptionKey],
   );
 
   return rows.map((row) => ({

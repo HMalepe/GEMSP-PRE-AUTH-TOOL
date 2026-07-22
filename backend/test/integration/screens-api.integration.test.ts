@@ -17,6 +17,7 @@ import { loadNetworkProviderFixtures } from '../../src/ingestion/loaders/network
 import { loadOptionFixtures } from '../../src/ingestion/loaders/option.js';
 import { loadTariffFixtures } from '../../src/ingestion/loaders/tariff.js';
 import { loadWaitingPeriodRuleFixtures } from '../../src/ingestion/loaders/waiting-period-rule.js';
+import { AUDITOR, CONSULTANT } from './helpers/auth-headers.js';
 import { migrateDown, migrateUp } from './helpers/run-migrations.js';
 
 /** Covers the new endpoints the consultant front-end needs (Implementation Companion Part C): autocomplete, member lookup, history search, override. */
@@ -54,7 +55,7 @@ describe('Front-end support API (real DB, real fixtures)', () => {
       await load();
     }
 
-    const app = createServer({ port: 0, databaseUrl: DATABASE_URL }, pool);
+    const app = createServer({ port: 0, databaseUrl: DATABASE_URL, dbEncryptionKey: 'test-encryption-key' }, pool);
     server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const { port } = server.address() as AddressInfo;
@@ -68,29 +69,34 @@ describe('Front-end support API (real DB, real fixtures)', () => {
   });
 
   test('GET /reference-data/icd10 finds by code prefix and by description', async () => {
-    const byCode = await (await fetch(`${baseUrl}/reference-data/icd10?q=M17&year=2025`)).json();
+    const byCode = await (await fetch(`${baseUrl}/reference-data/icd10?q=M17&year=2025`, { headers: { ...CONSULTANT } })).json();
     assert.ok(byCode.some((r: { code: string }) => r.code === 'M17.1'));
 
-    const byDescription = await (await fetch(`${baseUrl}/reference-data/icd10?q=diabetes&year=2025`)).json();
+    const byDescription = await (await fetch(`${baseUrl}/reference-data/icd10?q=diabetes&year=2025`, { headers: { ...CONSULTANT } })).json();
     assert.ok(byDescription.some((r: { code: string }) => r.code === 'E11.9'));
     assert.equal(byDescription.find((r: { code: string }) => r.code === 'E11.9')?.isPmb, true);
   });
 
   test('GET /reference-data/tariff and /reference-data/nappi search', async () => {
-    const tariffs = await (await fetch(`${baseUrl}/reference-data/tariff?q=HIP&year=2025`)).json();
+    const tariffs = await (await fetch(`${baseUrl}/reference-data/tariff?q=HIP&year=2025`, { headers: { ...CONSULTANT } })).json();
     assert.ok(tariffs.some((r: { code: string }) => r.code === 'PLACEHOLDER-HIP-01'));
 
-    const nappis = await (await fetch(`${baseUrl}/reference-data/nappi?q=formulary&year=2025`)).json();
+    const nappis = await (await fetch(`${baseUrl}/reference-data/nappi?q=formulary&year=2025`, { headers: { ...CONSULTANT } })).json();
     assert.ok(Array.isArray(nappis));
   });
 
   test('GET /reference-data/network-providers search', async () => {
-    const providers = await (await fetch(`${baseUrl}/reference-data/network-providers?q=HOSP&year=2025`)).json();
+    const providers = await (await fetch(`${baseUrl}/reference-data/network-providers?q=HOSP&year=2025`, { headers: { ...CONSULTANT } })).json();
     assert.ok(providers.length >= 2);
   });
 
+  test('GET /reference-data/icd10 without X-User-Id is rejected', async () => {
+    const res = await fetch(`${baseUrl}/reference-data/icd10?q=M17&year=2025`);
+    assert.equal(res.status, 401);
+  });
+
   test('GET /members/:memberId auto-fills option/status for the request form', async () => {
-    const res = await fetch(`${baseUrl}/members/M-0001?year=2025`);
+    const res = await fetch(`${baseUrl}/members/M-0001?year=2025`, { headers: { ...CONSULTANT } });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.optionCode, 'TANZANITE_ONE');
@@ -99,7 +105,7 @@ describe('Front-end support API (real DB, real fixtures)', () => {
   });
 
   test('GET /members/:memberId 404s for an unknown member', async () => {
-    const res = await fetch(`${baseUrl}/members/NOBODY`);
+    const res = await fetch(`${baseUrl}/members/NOBODY`, { headers: { ...CONSULTANT } });
     assert.equal(res.status, 404);
   });
 
@@ -108,7 +114,7 @@ describe('Front-end support API (real DB, real fixtures)', () => {
   test('history + evidence: submit an authorisation, then find it by member, code, and auth id', async () => {
     const submit = await fetch(`${baseUrl}/authorisations`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CONSULTANT },
       body: JSON.stringify({
         memberId: 'M-0001',
         icd10Code: 'M17.1',
@@ -121,18 +127,18 @@ describe('Front-end support API (real DB, real fixtures)', () => {
     const decision = await submit.json();
     approvedAuthId = decision.auth_id;
 
-    const byMember = await (await fetch(`${baseUrl}/auth-decisions?memberId=M-0001`)).json();
+    const byMember = await (await fetch(`${baseUrl}/auth-decisions?memberId=M-0001`, { headers: { ...CONSULTANT } })).json();
     assert.ok(byMember.some((r: { auth_id: string }) => r.auth_id === approvedAuthId));
 
-    const byCode = await (await fetch(`${baseUrl}/auth-decisions?code=M17.1`)).json();
+    const byCode = await (await fetch(`${baseUrl}/auth-decisions?code=M17.1`, { headers: { ...CONSULTANT } })).json();
     assert.ok(byCode.some((r: { auth_id: string }) => r.auth_id === approvedAuthId));
 
-    const byAuthId = await (await fetch(`${baseUrl}/auth-decisions?authId=${approvedAuthId}`)).json();
+    const byAuthId = await (await fetch(`${baseUrl}/auth-decisions?authId=${approvedAuthId}`, { headers: { ...CONSULTANT } })).json();
     assert.equal(byAuthId.length, 1);
   });
 
   test('GET /auth-decisions/:authId returns the full decision object with gate_results pass/fail markers', async () => {
-    const res = await fetch(`${baseUrl}/auth-decisions/${approvedAuthId}`);
+    const res = await fetch(`${baseUrl}/auth-decisions/${approvedAuthId}`, { headers: { ...CONSULTANT } });
     assert.equal(res.status, 200);
     const detail = await res.json();
 
@@ -143,26 +149,41 @@ describe('Front-end support API (real DB, real fixtures)', () => {
     assert.equal(detail.gate_results[0].gate_number, 0);
     assert.equal(detail.overrides.length, 0);
     assert.equal(detail.review_outcome, null);
+    assert.equal(detail.is_hiv_related, false);
+  });
+
+  test('GET /auth-decisions/:authId also works for an auditor (read-only role)', async () => {
+    const res = await fetch(`${baseUrl}/auth-decisions/${approvedAuthId}`, { headers: { ...AUDITOR } });
+    assert.equal(res.status, 200);
   });
 
   test('POST /auth-decisions/:authId/override requires overriddenBy and reason', async () => {
     const res = await fetch(`${baseUrl}/auth-decisions/${approvedAuthId}/override`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CONSULTANT },
       body: JSON.stringify({}),
     });
     assert.equal(res.status, 400);
   });
 
+  test('POST /auth-decisions/:authId/override is rejected for an auditor (read-only role)', async () => {
+    const res = await fetch(`${baseUrl}/auth-decisions/${approvedAuthId}/override`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...AUDITOR },
+      body: JSON.stringify({ overriddenBy: 'compliance.auditor', reason: 'auditors do not override decisions' }),
+    });
+    assert.equal(res.status, 403);
+  });
+
   test('POST /auth-decisions/:authId/override records the override, visible on the detail view', async () => {
     const res = await fetch(`${baseUrl}/auth-decisions/${approvedAuthId}/override`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CONSULTANT },
       body: JSON.stringify({ overriddenBy: 'dr.consultant', reason: 'member disputes the funding source, escalating' }),
     });
     assert.equal(res.status, 200);
 
-    const detail = await (await fetch(`${baseUrl}/auth-decisions/${approvedAuthId}`)).json();
+    const detail = await (await fetch(`${baseUrl}/auth-decisions/${approvedAuthId}`, { headers: { ...CONSULTANT } })).json();
     assert.equal(detail.overrides.length, 1);
     assert.equal(detail.overrides[0].overridden_by, 'dr.consultant');
   });
@@ -170,7 +191,7 @@ describe('Front-end support API (real DB, real fixtures)', () => {
   test('POST /auth-decisions/:authId/override 404s for an unknown auth id', async () => {
     const res = await fetch(`${baseUrl}/auth-decisions/00000000-0000-0000-0000-000000000000/override`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CONSULTANT },
       body: JSON.stringify({ overriddenBy: 'x', reason: 'y' }),
     });
     assert.equal(res.status, 404);

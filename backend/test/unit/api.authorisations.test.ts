@@ -15,7 +15,7 @@ let baseUrl: string;
 let server: ReturnType<ReturnType<typeof createServer>['listen']>;
 
 before(async () => {
-  const app = createServer({ port: 0, databaseUrl: undefined });
+  const app = createServer({ port: 0, databaseUrl: undefined, dbEncryptionKey: 'test-encryption-key' });
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const { port } = server.address() as AddressInfo;

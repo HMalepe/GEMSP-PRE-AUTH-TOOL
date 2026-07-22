@@ -16,7 +16,7 @@ import { loadFixtureDataset, type DatasetDefinition, type LoadFixtureResult } fr
 const DEFINITION: DatasetDefinition = {
   dataset: 'icd10',
   targetTable: 'icd10',
-  columns: ['code', 'description', 'is_pmb', 'dtp_id', 'cdl_flag'],
+  columns: ['code', 'description', 'is_pmb', 'dtp_id', 'cdl_flag', 'hiv_flag'],
   rowKey: (row) => String(row.code),
   validateRow: (row) => {
     const errors: string[] = [];
@@ -38,6 +38,13 @@ const DEFINITION: DatasetDefinition = {
       // code needs one or the other, not necessarily both.
       errors.push('a PMB code must reference a dtp_id or have cdl_flag=true');
     }
+    if (typeof row.hiv_flag !== 'boolean') {
+      errors.push('hiv_flag must be a boolean');
+    }
+    if (row.hiv_flag === true && row.cdl_flag !== true) {
+      // HIV/AIDS is one of the 26/27 PMB CDL conditions (docs/gems-annexures-compilation.md §4) — every HIV-flagged code must also be CDL.
+      errors.push('hiv_flag=true requires cdl_flag=true — HIV/AIDS is a PMB CDL condition');
+    }
     return errors;
   },
 };
@@ -49,6 +56,7 @@ const FIXTURE_ROWS: Record<string, unknown>[] = [
     is_pmb: false,
     dtp_id: null,
     cdl_flag: false,
+    hiv_flag: false,
   },
   {
     code: 'I21.9',
@@ -56,6 +64,7 @@ const FIXTURE_ROWS: Record<string, unknown>[] = [
     is_pmb: true,
     dtp_id: 'DTP-0001',
     cdl_flag: false,
+    hiv_flag: false,
   },
   {
     code: 'K35.80',
@@ -63,6 +72,7 @@ const FIXTURE_ROWS: Record<string, unknown>[] = [
     is_pmb: true,
     dtp_id: 'DTP-0002',
     cdl_flag: false,
+    hiv_flag: false,
   },
   {
     code: 'E11.9',
@@ -70,6 +80,27 @@ const FIXTURE_ROWS: Record<string, unknown>[] = [
     is_pmb: true,
     dtp_id: null,
     cdl_flag: true,
+    hiv_flag: false,
+  },
+  // HIV/AIDS is one of the 26/27 PMB CDL conditions covered on ALL options
+  // (docs/gems-annexures-compilation.md §4) — real WHO ICD-10 codes, PMB/
+  // CDL/HIV flags illustrative pending real CMS PMB list verification, same
+  // caveat as the rest of this fixture (see file header).
+  {
+    code: 'B20',
+    description: 'Human immunodeficiency virus [HIV] disease resulting in infectious and parasitic diseases',
+    is_pmb: true,
+    dtp_id: null,
+    cdl_flag: true,
+    hiv_flag: true,
+  },
+  {
+    code: 'B24',
+    description: 'Unspecified human immunodeficiency virus [HIV] disease',
+    is_pmb: true,
+    dtp_id: null,
+    cdl_flag: true,
+    hiv_flag: true,
   },
 ];
 
@@ -78,6 +109,6 @@ export async function loadIcd10Fixtures(pool: Pool, benefitYear = 2025): Promise
     benefitYear,
     effectiveFrom: `${benefitYear}-01-01`,
     sourceDoc: 'FIXTURE — CMS PMB ICD-10 coded list, not yet acquired (Implementation Companion A.2.1)',
-    checksum: `fixture-icd10-${benefitYear}`,
+    checksum: `fixture-icd10-${benefitYear}-v2`,
   });
 }

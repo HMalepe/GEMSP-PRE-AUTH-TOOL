@@ -39,13 +39,14 @@ export async function triageRoutedCase(
   pool: Pool,
   client: LlmClient,
   authId: string,
+  encryptionKey: string,
   options: { confidenceThreshold?: number } = {},
 ): Promise<LayerBSuggestionRecord> {
   const threshold = options.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
 
   const { rows } = await pool.query<{ decision: string; codes: Record<string, unknown>; reasons: unknown; motivation_text: string | null }>(
-    `SELECT decision, codes, reasons, motivation_text FROM auth_decision WHERE auth_id = $1`,
-    [authId],
+    `SELECT decision, codes, reasons, pgp_sym_decrypt(motivation_text, $2::text) AS motivation_text FROM auth_decision WHERE auth_id = $1`,
+    [authId, encryptionKey],
   );
   const row = rows[0];
   if (!row) {

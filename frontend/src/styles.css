@@ -360,6 +360,26 @@ tr.clickable:hover {
   color: var(--color-decline-text);
 }
 
+.badge-role-consultant {
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-text);
+}
+
+.badge-role-clinical_maintainer {
+  background: var(--color-approve-bg);
+  color: var(--color-approve-text);
+}
+
+.badge-role-admin {
+  background: var(--color-route-bg);
+  color: var(--color-route-text);
+}
+
+.badge-role-auditor {
+  background: var(--color-decline-bg);
+  color: var(--color-decline-text);
+}
+
 .empty-state {
   color: var(--color-muted);
   font-style: italic;

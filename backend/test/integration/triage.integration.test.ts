@@ -18,6 +18,7 @@ import { loadNetworkProviderFixtures } from '../../src/ingestion/loaders/network
 import { loadOptionFixtures } from '../../src/ingestion/loaders/option.js';
 import { loadTariffFixtures } from '../../src/ingestion/loaders/tariff.js';
 import { loadWaitingPeriodRuleFixtures } from '../../src/ingestion/loaders/waiting-period-rule.js';
+import { CLINICAL_MAINTAINER, CONSULTANT } from './helpers/auth-headers.js';
 import { migrateDown, migrateUp } from './helpers/run-migrations.js';
 
 /**
@@ -80,7 +81,7 @@ async function loadAllFixtures(pool: pg.Pool): Promise<void> {
 }
 
 async function startServer(pool: pg.Pool, llmClient?: LlmClient) {
-  const app = createServer({ port: 0, databaseUrl: DATABASE_URL }, pool, llmClient);
+  const app = createServer({ port: 0, databaseUrl: DATABASE_URL, dbEncryptionKey: 'test-encryption-key' }, pool, llmClient);
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const { port } = server.address() as AddressInfo;
@@ -90,7 +91,7 @@ async function startServer(pool: pg.Pool, llmClient?: LlmClient) {
 async function submitRoutedCase(baseUrl: string, memberId: string, motivationText?: string): Promise<string> {
   const res = await fetch(`${baseUrl}/authorisations`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...CONSULTANT },
     body: JSON.stringify({
       memberId,
       icd10Code: 'NOT-A-REAL-CODE',
@@ -108,7 +109,7 @@ async function submitRoutedCase(baseUrl: string, memberId: string, motivationTex
 
 async function pollForSuggestion(baseUrl: string, authId: string, attempts = 20): Promise<{ layerBSuggestion?: unknown }> {
   for (let i = 0; i < attempts; i += 1) {
-    const item = await (await fetch(`${baseUrl}/review-queue/${authId}`)).json();
+    const item = await (await fetch(`${baseUrl}/review-queue/${authId}`, { headers: { ...CLINICAL_MAINTAINER } })).json();
     if (item.layerBSuggestion) {
       return item;
     }
@@ -172,7 +173,7 @@ describe('Layer B triage (real DB, fake private-inference LlmClient)', () => {
       // Not routed at all (a clean approve).
       const approveRes = await fetch(`${baseUrl}/authorisations`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...CONSULTANT },
         body: JSON.stringify({
           memberId: 'M-0001',
           icd10Code: 'M17.1',
@@ -184,28 +185,42 @@ describe('Layer B triage (real DB, fake private-inference LlmClient)', () => {
       });
       const approveBody = await approveRes.json();
       assert.equal(approveBody.decision, 'APPROVE');
-      const notRoutedRes = await fetch(`${baseUrl}/review-queue/${approveBody.auth_id}/triage`, { method: 'POST' });
+      const notRoutedRes = await fetch(`${baseUrl}/review-queue/${approveBody.auth_id}/triage`, { method: 'POST', headers: { ...CLINICAL_MAINTAINER } });
       assert.equal(notRoutedRes.status, 400);
       const notRoutedBody = await notRoutedRes.json();
       assert.equal(notRoutedBody.code, 'NOT_ROUTED');
 
       // Routed but no motivation text attached.
       const routedNoTextAuthId = await submitRoutedCase(baseUrl, 'M-0002');
-      const noTextRes = await fetch(`${baseUrl}/review-queue/${routedNoTextAuthId}/triage`, { method: 'POST' });
+      const noTextRes = await fetch(`${baseUrl}/review-queue/${routedNoTextAuthId}/triage`, { method: 'POST', headers: { ...CLINICAL_MAINTAINER } });
       assert.equal(noTextRes.status, 400);
       const noTextBody = await noTextRes.json();
       assert.equal(noTextBody.code, 'NO_MOTIVATION_TEXT');
 
       // Unknown auth id entirely.
-      const unknownRes = await fetch(`${baseUrl}/review-queue/00000000-0000-0000-0000-000000000000/triage`, { method: 'POST' });
+      const unknownRes = await fetch(`${baseUrl}/review-queue/00000000-0000-0000-0000-000000000000/triage`, {
+        method: 'POST',
+        headers: { ...CLINICAL_MAINTAINER },
+      });
       assert.equal(unknownRes.status, 404);
 
       // A valid manual retrigger succeeds and matches the fake client's result.
       const routedWithTextAuthId = await submitRoutedCase(baseUrl, 'M-0002', 'Specialist motivation letter attached.');
-      const manualRes = await fetch(`${baseUrl}/review-queue/${routedWithTextAuthId}/triage`, { method: 'POST' });
+      const manualRes = await fetch(`${baseUrl}/review-queue/${routedWithTextAuthId}/triage`, { method: 'POST', headers: { ...CLINICAL_MAINTAINER } });
       assert.equal(manualRes.status, 200);
       const manualBody = await manualRes.json();
       assert.equal(manualBody.recommendedAction, 'APPROVED');
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+    }
+  });
+
+  test('manual trigger endpoint is rejected for a consultant (not permitted to triage)', async () => {
+    const { server, baseUrl } = await startServer(pool, new FakeLlmClient(HIGH_CONFIDENCE_RESULT));
+    try {
+      const authId = await submitRoutedCase(baseUrl, 'M-0002', 'Some motivation text.');
+      const res = await fetch(`${baseUrl}/review-queue/${authId}/triage`, { method: 'POST', headers: { ...CONSULTANT } });
+      assert.equal(res.status, 403);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
     }
@@ -215,7 +230,7 @@ describe('Layer B triage (real DB, fake private-inference LlmClient)', () => {
     const { server, baseUrl } = await startServer(pool, undefined);
     try {
       const authId = await submitRoutedCase(baseUrl, 'M-0002', 'Some motivation text.');
-      const res = await fetch(`${baseUrl}/review-queue/${authId}/triage`, { method: 'POST' });
+      const res = await fetch(`${baseUrl}/review-queue/${authId}/triage`, { method: 'POST', headers: { ...CLINICAL_MAINTAINER } });
       assert.equal(res.status, 503);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
@@ -229,11 +244,29 @@ describe('Layer B triage (real DB, fake private-inference LlmClient)', () => {
       await pollForSuggestion(baseUrl, authId);
 
       // Still sitting on the pending queue — Layer B's suggestion did not resolve it.
-      const queue = await (await fetch(`${baseUrl}/review-queue`)).json();
+      const queue = await (await fetch(`${baseUrl}/review-queue`, { headers: { ...CLINICAL_MAINTAINER } })).json();
       assert.ok(queue.some((i: { authId: string }) => i.authId === authId));
 
       const { rows } = await pool.query('SELECT decision FROM auth_decision WHERE auth_id = $1', [authId]);
       assert.equal(rows[0]?.decision, 'ROUTE', 'Layer B must never rewrite the Layer-A decision');
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+    }
+  });
+
+  test('motivation_text is encrypted at rest — the raw column bytes never equal the plaintext', async () => {
+    const { server, baseUrl } = await startServer(pool, new FakeLlmClient(HIGH_CONFIDENCE_RESULT));
+    try {
+      const plaintext = 'Prior formulary option failed after 3 months; specialist recommends off-protocol agent.';
+      const authId = await submitRoutedCase(baseUrl, 'M-0002', plaintext);
+
+      const { rows } = await pool.query('SELECT motivation_text FROM auth_decision WHERE auth_id = $1', [authId]);
+      const raw = rows[0]?.motivation_text as Buffer;
+      assert.ok(Buffer.isBuffer(raw), 'motivation_text is stored as bytea, not plain text');
+      assert.ok(!raw.toString('utf8').includes(plaintext), 'the ciphertext must not contain the plaintext motivation');
+
+      // But the suggestion (from the fake LLM, fed the decrypted text) still surfaces correctly.
+      await pollForSuggestion(baseUrl, authId);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
     }
@@ -247,27 +280,28 @@ describe('Layer B triage (real DB, fake private-inference LlmClient)', () => {
 
       const resolveRes = await fetch(`${baseUrl}/review-queue/${authId}/resolve`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...CLINICAL_MAINTAINER },
         body: JSON.stringify({ reviewer: 'a.reviewer', outcome: 'APPROVED', reason: 'motivation letter checks out, agrees with AI-assisted summary' }),
       });
       assert.equal(resolveRes.status, 200);
 
-      const training = await (await fetch(`${baseUrl}/training-data`)).json();
+      const training = await (await fetch(`${baseUrl}/training-data`, { headers: { ...CLINICAL_MAINTAINER } })).json();
       const example = training.find((e: { authId: string }) => e.authId === authId);
       assert.ok(example, 'resolved routed case must appear in the training-data export');
       assert.equal(example.suggestionRecommendedAction, 'APPROVED');
       assert.equal(example.humanOutcome, 'APPROVED');
       assert.equal(example.agreement, true);
+      assert.match(example.motivationText, /agrees with Layer B/, 'training data decrypts motivation text correctly');
 
       // A second case where the human disagrees with Layer B.
       const disagreeAuthId = await submitRoutedCase(baseUrl, 'M-0002', 'Motivation letter attached, human will disagree.');
       await pollForSuggestion(baseUrl, disagreeAuthId);
       await fetch(`${baseUrl}/review-queue/${disagreeAuthId}/resolve`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...CLINICAL_MAINTAINER },
         body: JSON.stringify({ reviewer: 'a.reviewer', outcome: 'DECLINED', reason: 'motivation letter does not hold up on manual review' }),
       });
-      const training2 = await (await fetch(`${baseUrl}/training-data`)).json();
+      const training2 = await (await fetch(`${baseUrl}/training-data`, { headers: { ...CLINICAL_MAINTAINER } })).json();
       const disagreeExample = training2.find((e: { authId: string }) => e.authId === disagreeAuthId);
       assert.equal(disagreeExample.agreement, false);
 
@@ -275,10 +309,10 @@ describe('Layer B triage (real DB, fake private-inference LlmClient)', () => {
       const noSuggestionAuthId = await submitRoutedCase(baseUrl, 'M-0002');
       await fetch(`${baseUrl}/review-queue/${noSuggestionAuthId}/resolve`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...CLINICAL_MAINTAINER },
         body: JSON.stringify({ reviewer: 'a.reviewer', outcome: 'MORE_INFO_REQUESTED', reason: 'no motivation text was ever attached' }),
       });
-      const training3 = await (await fetch(`${baseUrl}/training-data`)).json();
+      const training3 = await (await fetch(`${baseUrl}/training-data`, { headers: { ...CLINICAL_MAINTAINER } })).json();
       const noSuggestionExample = training3.find((e: { authId: string }) => e.authId === noSuggestionAuthId);
       assert.ok(noSuggestionExample);
       assert.equal(noSuggestionExample.agreement, null);

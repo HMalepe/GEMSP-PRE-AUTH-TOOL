@@ -11,7 +11,8 @@ import { loadFixtureDataset, type DatasetDefinition, type LoadFixtureResult } fr
  * invented — but this is still a fixture/hand-transcribed load, not a
  * real Phase-0 acquisition.
  */
-const DEFINITION: DatasetDefinition = {
+/** Exported so a real annual-refresh operation (or its test) can stage/validate/promote a NEW year's rows through the exact same dataset shape/validation as this fixture loader — see backend/test/integration/versioning.integration.test.ts. */
+export const CO_PAYMENT_RULE_DEFINITION: DatasetDefinition = {
   dataset: 'co_payment_rule',
   targetTable: 'co_payment_rule',
   columns: ['trigger_code', 'option_code', 'amount_or_pct', 'basis'],
@@ -42,7 +43,7 @@ const FIXTURE_ROWS: Record<string, unknown>[] = [
 ];
 
 export async function loadCoPaymentRuleFixtures(pool: Pool, benefitYear = 2025): Promise<LoadFixtureResult> {
-  return loadFixtureDataset(pool, DEFINITION, FIXTURE_ROWS, {
+  return loadFixtureDataset(pool, CO_PAYMENT_RULE_DEFINITION, FIXTURE_ROWS, {
     benefitYear,
     effectiveFrom: `${benefitYear}-01-01`,
     sourceDoc: 'FIXTURE (hand-transcribed) — GEMS benefit guides / What’s New, from docs/gems-annexures-compilation.md §3',

@@ -22,7 +22,7 @@ export function ReviewQueueScreen() {
   const [items, setItems] = useState<QueueItemSummary[] | null>(null);
   const [selected, setSelected] = useState<QueueItemDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reviewer] = useCurrentUser();
+  const [user] = useCurrentUser();
   const [outcome, setOutcome] = useState<'APPROVED' | 'DECLINED' | 'MORE_INFO_REQUESTED'>('APPROVED');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -56,8 +56,8 @@ export function ReviewQueueScreen() {
   async function handleResolve(e: React.FormEvent) {
     e.preventDefault();
     if (!selected) return;
-    if (!reviewer.trim()) {
-      setFormError('Set your consultant name (top right) before resolving a case.');
+    if (!user) {
+      setFormError('Select an account (top right) before resolving a case.');
       return;
     }
     if (!reason.trim()) {
@@ -67,7 +67,7 @@ export function ReviewQueueScreen() {
     setSubmitting(true);
     setFormError(null);
     try {
-      await resolveReviewQueueItem(selected.authId, { reviewer: reviewer.trim(), outcome, reason: reason.trim() });
+      await resolveReviewQueueItem(selected.authId, { reviewer: user.name, outcome, reason: reason.trim() });
       setSelected(null);
       refresh();
     } catch (err) {

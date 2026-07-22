@@ -50,6 +50,8 @@ export interface Icd10 {
   isPmb: boolean;
   dtpId: string | null;
   cdlFlag: boolean;
+  /** HIV/AIDS-related diagnosis — mirrors GEMS's confidential-DMP posture (Technical Build Spec §7); gated behind security/redact.ts on every read path outside the original submitter. */
+  hivFlag: boolean;
 }
 
 export interface Dtp {

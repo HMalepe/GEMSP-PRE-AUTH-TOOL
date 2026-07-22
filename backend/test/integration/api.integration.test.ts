@@ -17,6 +17,7 @@ import { loadNetworkProviderFixtures } from '../../src/ingestion/loaders/network
 import { loadOptionFixtures } from '../../src/ingestion/loaders/option.js';
 import { loadTariffFixtures } from '../../src/ingestion/loaders/tariff.js';
 import { loadWaitingPeriodRuleFixtures } from '../../src/ingestion/loaders/waiting-period-rule.js';
+import { CLINICAL_MAINTAINER, CONSULTANT } from './helpers/auth-headers.js';
 import { migrateDown, migrateUp } from './helpers/run-migrations.js';
 
 /**
@@ -62,7 +63,7 @@ describe('API integration (real DB, real fixtures)', () => {
       await load();
     }
 
-    const app = createServer({ port: 0, databaseUrl: DATABASE_URL }, pool);
+    const app = createServer({ port: 0, databaseUrl: DATABASE_URL, dbEncryptionKey: 'test-encryption-key' }, pool);
     server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const { port } = server.address() as AddressInfo;
@@ -75,10 +76,28 @@ describe('API integration (real DB, real fixtures)', () => {
     await migrateDown(DATABASE_URL);
   });
 
-  test('POST /authorisations approves a clean in-network request and persists it', async () => {
+  test('POST /authorisations without X-User-Id is rejected (RBAC is enforced, not optional)', async () => {
     const res = await fetch(`${baseUrl}/authorisations`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ memberId: 'M-0001', icd10Code: 'M17.1', tariffCode: 'PLACEHOLDER-HIP-01', serviceDate: '2025-06-01', setting: 'IN_HOSPITAL' }),
+    });
+    assert.equal(res.status, 401);
+  });
+
+  test('POST /authorisations as an auditor (read-only role) is rejected with 403', async () => {
+    const res = await fetch(`${baseUrl}/authorisations`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-user-id': 'compliance.auditor' },
+      body: JSON.stringify({ memberId: 'M-0001', icd10Code: 'M17.1', tariffCode: 'PLACEHOLDER-HIP-01', serviceDate: '2025-06-01', setting: 'IN_HOSPITAL' }),
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('POST /authorisations approves a clean in-network request and persists it', async () => {
+    const res = await fetch(`${baseUrl}/authorisations`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...CONSULTANT },
       body: JSON.stringify({
         memberId: 'M-0001',
         icd10Code: 'M17.1',
@@ -96,15 +115,16 @@ describe('API integration (real DB, real fixtures)', () => {
     assert.equal(body.co_payment, null);
     assert.match(body.rules_version, /^2025\.[0-9a-f]{8}$/);
 
-    const { rows } = await pool.query('SELECT decision, member_id FROM auth_decision WHERE auth_id = $1', [body.auth_id]);
+    const { rows } = await pool.query('SELECT decision, member_id, created_by FROM auth_decision WHERE auth_id = $1', [body.auth_id]);
     assert.equal(rows[0]?.decision, 'APPROVE');
     assert.equal(rows[0]?.member_id, 'M-0001');
+    assert.equal(rows[0]?.created_by, 'dr.consultant', 'the submitting user is recorded on the decision');
   });
 
   test('POST /authorisations for an unknown member returns 404', async () => {
     const res = await fetch(`${baseUrl}/authorisations`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CONSULTANT },
       body: JSON.stringify({
         memberId: 'NOT-A-MEMBER',
         icd10Code: 'M17.1',
@@ -121,7 +141,7 @@ describe('API integration (real DB, real fixtures)', () => {
   test('POST /authorisations rejects an invalid body with 400', async () => {
     const res = await fetch(`${baseUrl}/authorisations`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CONSULTANT },
       body: JSON.stringify({ memberId: 'M-0001' }),
     });
     assert.equal(res.status, 400);
@@ -132,7 +152,7 @@ describe('API integration (real DB, real fixtures)', () => {
   test('POST /authorisations routes an unresolvable ICD-10 code, and it lands on the review queue', async () => {
     const res = await fetch(`${baseUrl}/authorisations`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CONSULTANT },
       body: JSON.stringify({
         memberId: 'M-0002',
         icd10Code: 'NOT-A-REAL-CODE',
@@ -146,13 +166,18 @@ describe('API integration (real DB, real fixtures)', () => {
     assert.equal(body.decision, 'ROUTE');
     routedAuthId = body.auth_id;
 
-    const queueRes = await fetch(`${baseUrl}/review-queue`);
+    const queueRes = await fetch(`${baseUrl}/review-queue`, { headers: { ...CLINICAL_MAINTAINER } });
     const queue = await queueRes.json();
     assert.ok(queue.some((item: { authId: string }) => item.authId === routedAuthId));
   });
 
+  test('GET /review-queue as a consultant (not permitted to triage) is rejected with 403', async () => {
+    const res = await fetch(`${baseUrl}/review-queue`, { headers: { ...CONSULTANT } });
+    assert.equal(res.status, 403);
+  });
+
   test('GET /review-queue/:authId returns the routed item with evidence', async () => {
-    const res = await fetch(`${baseUrl}/review-queue/${routedAuthId}`);
+    const res = await fetch(`${baseUrl}/review-queue/${routedAuthId}`, { headers: { ...CLINICAL_MAINTAINER } });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.authId, routedAuthId);
@@ -162,7 +187,7 @@ describe('API integration (real DB, real fixtures)', () => {
   test('POST /review-queue/:authId/resolve requires a reason', async () => {
     const res = await fetch(`${baseUrl}/review-queue/${routedAuthId}/resolve`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CLINICAL_MAINTAINER },
       body: JSON.stringify({ reviewer: 'a.reviewer', outcome: 'APPROVED' }),
     });
     assert.equal(res.status, 400);
@@ -171,23 +196,23 @@ describe('API integration (real DB, real fixtures)', () => {
   test('POST /review-queue/:authId/resolve records the outcome and removes it from the queue', async () => {
     const res = await fetch(`${baseUrl}/review-queue/${routedAuthId}/resolve`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CLINICAL_MAINTAINER },
       body: JSON.stringify({ reviewer: 'a.reviewer', outcome: 'APPROVED', reason: 'diagnosis confirmed via motivation letter' }),
     });
     assert.equal(res.status, 200);
 
-    const queueRes = await fetch(`${baseUrl}/review-queue`);
+    const queueRes = await fetch(`${baseUrl}/review-queue`, { headers: { ...CLINICAL_MAINTAINER } });
     const queue = await queueRes.json();
     assert.ok(!queue.some((item: { authId: string }) => item.authId === routedAuthId));
 
-    const itemRes = await fetch(`${baseUrl}/review-queue/${routedAuthId}`);
+    const itemRes = await fetch(`${baseUrl}/review-queue/${routedAuthId}`, { headers: { ...CLINICAL_MAINTAINER } });
     assert.equal(itemRes.status, 404, 'resolved items are no longer "pending"');
   });
 
   test('POST /review-queue/:authId/resolve on an already-resolved item fails', async () => {
     const res = await fetch(`${baseUrl}/review-queue/${routedAuthId}/resolve`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...CLINICAL_MAINTAINER },
       body: JSON.stringify({ reviewer: 'a.reviewer', outcome: 'APPROVED', reason: 'duplicate resolve attempt' }),
     });
     assert.equal(res.status, 404);

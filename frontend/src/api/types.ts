@@ -46,6 +46,9 @@ export interface AuthDecisionSummary {
   created_at: string;
   rules_version: string;
   codes: Record<string, unknown>;
+  /** HIV/AIDS confidentiality (Technical Build Spec §7) — true even on a redacted record, so the UI can show *that* something was restricted. */
+  is_hiv_related: boolean;
+  created_by: string | null;
 }
 
 export interface OverrideRecordPayload {
@@ -113,6 +116,13 @@ export interface MemberLookupResult {
   priorCoverMonths: number;
   dob: string;
   benefitYear: number;
+}
+
+/** GET /users (backend/src/api/server.ts) — the demo accounts seeded by db/migrations/1700000000004_security-hardening.js, used by the account picker (auth/current-user-storage.ts is the client-side stopgap for real SSO). */
+export interface AppUser {
+  userId: string;
+  name: string;
+  role: 'consultant' | 'clinical_maintainer' | 'admin' | 'auditor';
 }
 
 export interface QueueItemSummary {

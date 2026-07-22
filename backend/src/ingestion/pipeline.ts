@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
+import { invalidateBenefitYear } from '../engine/reference-cache.js';
 
 /**
  * Generic staging -> validation -> human-verification -> promotion
@@ -254,6 +255,11 @@ export async function promoteRuleVersion(pool: Pool, params: PromoteParams): Pro
     client.release();
   }
 
+  // Reference-cache staleness window is bounded by its TTL either way, but
+  // a promotion should be visible on the very next decision, not up to a
+  // minute later (Technical Build Spec §6: "in-memory reference data").
+  invalidateBenefitYear(benefitYear);
+
   return staged.length;
 }
 
@@ -305,6 +311,8 @@ export async function rollbackRuleVersion(pool: Pool, params: RollbackParams): P
   } finally {
     client.release();
   }
+
+  invalidateBenefitYear(benefitYear);
 
   return staged.length;
 }
