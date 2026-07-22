@@ -61,6 +61,7 @@ export function NewRequestScreen() {
   const [hasReferral, setHasReferral] = useState(false);
   const [quotedAmount, setQuotedAmount] = useState('');
   const [dispensingIsDsp, setDispensingIsDsp] = useState(false);
+  const [motivationText, setMotivationText] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<{ message: string; details?: string[] } | null>(null);
@@ -108,6 +109,7 @@ export function NewRequestScreen() {
         hasReferral: showAdvanced ? hasReferral : undefined,
         quotedAmount: quotedAmount ? Number(quotedAmount) : undefined,
         dispensingIsDsp: nappi ? dispensingIsDsp : undefined,
+        motivationText: motivationText.trim() || undefined,
       });
       navigate(`/decision/${decision.auth_id}`);
     } catch (err) {
@@ -289,6 +291,20 @@ export function NewRequestScreen() {
             )}
           </div>
         )}
+      </fieldset>
+
+      <fieldset>
+        <legend>Motivation (optional)</legend>
+        <div className="field">
+          <label htmlFor="motivationText">Motivation letter / clinical notes / quotation</label>
+          <textarea
+            id="motivationText"
+            rows={5}
+            value={motivationText}
+            onChange={(e) => setMotivationText(e.target.value)}
+            placeholder="Paste any supporting clinical motivation here. If this request is routed for review, an AI-assisted summary (never an auto-decision) may be generated from this text to help the reviewer."
+          />
+        </div>
       </fieldset>
 
       <div className="button-row">

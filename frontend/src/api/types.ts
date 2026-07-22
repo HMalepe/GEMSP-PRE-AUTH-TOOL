@@ -122,10 +122,23 @@ export interface QueueItemSummary {
   createdAt: string;
 }
 
+/** Layer B's advisory extraction/recommendation for a routed case (Technical Build Spec §5) — never a decision, always attributed to a model. */
+export interface LayerBSuggestionPayload {
+  id: string;
+  authId: string;
+  modelIdentifier: string;
+  endpointType: 'PRIVATE' | 'PUBLIC';
+  confidence: number;
+  recommendedAction: 'APPROVED' | 'DECLINED' | 'MORE_INFO_REQUESTED' | null;
+  extractedEvidence: { summary: string; keyFindings: string[]; concerns: string[] };
+  createdAt: string;
+}
+
 export interface QueueItemDetail extends QueueItemSummary {
   codes: Record<string, unknown>;
   reasons: string[];
   rulesVersion: string;
+  layerBSuggestion?: LayerBSuggestionPayload;
 }
 
 /** What Screen 1 submits — see backend/src/engine/types.ts AuthRequest. */
@@ -146,4 +159,5 @@ export interface AuthRequestInput {
   hasReferral?: boolean;
   quotedAmount?: number;
   dispensingIsDsp?: boolean;
+  motivationText?: string;
 }

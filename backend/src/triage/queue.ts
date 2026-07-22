@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { getLatestSuggestion, type LayerBSuggestionRecord } from './extraction.js';
 
 /**
  * The human review queue (Implementation Companion §C.4). A routed
@@ -16,6 +17,8 @@ export interface QueueItemDetail extends QueueItemSummary {
   codes: Record<string, unknown>;
   reasons: string[];
   rulesVersion: string;
+  /** Layer B's extraction/recommendation for this case, if triage has run — advisory only, Screen 3 must never auto-apply it. */
+  layerBSuggestion?: LayerBSuggestionRecord;
 }
 
 function lastReason(reasons: unknown): string {
@@ -59,6 +62,7 @@ export async function getReviewQueueItem(pool: Pool, authId: string): Promise<Qu
   if (!row) {
     return undefined;
   }
+  const layerBSuggestion = await getLatestSuggestion(pool, row.auth_id);
   return {
     authId: row.auth_id,
     memberId: row.member_id,
@@ -67,6 +71,7 @@ export async function getReviewQueueItem(pool: Pool, authId: string): Promise<Qu
     reasonForRouting: lastReason(row.reasons),
     rulesVersion: row.rules_version,
     createdAt: row.created_at,
+    layerBSuggestion,
   };
 }
 

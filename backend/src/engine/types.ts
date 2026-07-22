@@ -45,6 +45,13 @@ export interface AuthRequest {
   quotedAmount?: number;
   /** Was the NAPPI dispensed at a DSP-nominated pharmacy? Feeds the medicine non-DSP 30% leg. */
   dispensingIsDsp?: boolean;
+  /**
+   * Free-text motivation letter / clinical notes / quotation, if the
+   * consultant has one to attach. Layer A's gates never read this — it
+   * exists solely for Layer B extraction on a case that routes
+   * (Technical Build Spec §5.1; triage/extraction.ts).
+   */
+  motivationText?: string;
 }
 
 /**

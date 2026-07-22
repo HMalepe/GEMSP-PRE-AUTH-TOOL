@@ -50,6 +50,7 @@ export function parseAuthRequest(body: unknown): ParseResult {
   if (!optionalBoolean(b.isEmergency)) errors.push('isEmergency must be a boolean if provided');
   if (!optionalBoolean(b.hasReferral)) errors.push('hasReferral must be a boolean if provided');
   if (!optionalBoolean(b.dispensingIsDsp)) errors.push('dispensingIsDsp must be a boolean if provided');
+  if (!optionalString(b.motivationText)) errors.push('motivationText must be a string if provided');
 
   if (errors.length > 0) {
     return { ok: false, errors };
@@ -74,6 +75,7 @@ export function parseAuthRequest(body: unknown): ParseResult {
       hasReferral: b.hasReferral as boolean | undefined,
       quotedAmount: b.quotedAmount as number | undefined,
       dispensingIsDsp: b.dispensingIsDsp as boolean | undefined,
+      motivationText: b.motivationText as string | undefined,
     },
   };
 }

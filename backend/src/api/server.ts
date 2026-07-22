@@ -5,6 +5,9 @@ import { evaluateAuthorisation } from '../engine/index.js';
 import { ReferenceDataError, resolveReferenceData, resolveRulesVersion } from '../engine/resolve-reference-data.js';
 import { benefitYearFromServiceDate } from '../engine/date-utils.js';
 import { getReviewQueueItem, listReviewQueue, resolveReviewQueueItem } from '../triage/queue.js';
+import { LayerBNotApplicableError, triageRoutedCase } from '../triage/extraction.js';
+import type { LlmClient } from '../triage/llm-client.js';
+import { getTrainingExamples } from '../triage/training-data.js';
 import { getAuthDecisionDetail, searchAuthDecisions } from './history.js';
 import { AuthDecisionNotFoundError, recordOverride } from './override.js';
 import { persistAuthDecision } from './persist-decision.js';
@@ -38,7 +41,7 @@ function parseQueryParam(value: unknown): string {
  * and responds 503 if it's missing (enforced centrally, see the
  * middleware right after /health is registered).
  */
-export function createServer(_config: AppConfig, pool?: Pool): Express {
+export function createServer(_config: AppConfig, pool?: Pool, llmClient?: LlmClient): Express {
   const app = express();
   app.use(express.json());
 
@@ -86,6 +89,15 @@ export function createServer(_config: AppConfig, pool?: Pool): Express {
       const decision = evaluateAuthorisation({ authId: crypto.randomUUID(), request, ref, rulesVersion });
       await persistAuthDecision(requireDb(), request, decision);
       res.status(200).json(toAuthDecisionPayload(decision));
+
+      // Fire-and-forget: never delays the response above, and a failure
+      // here doesn't affect the already-returned Layer-A decision — the
+      // manual /triage endpoint below exists precisely for retrying this.
+      if (decision.decision === 'ROUTE' && request.motivationText && llmClient) {
+        triageRoutedCase(requireDb(), llmClient, decision.authId).catch((err: unknown) => {
+          console.error(`Layer B auto-triage failed for ${decision.authId}`, err);
+        });
+      }
     } catch (err) {
       if (err instanceof ReferenceDataError) {
         res.status(404).json({ error: err.message, code: err.code });
@@ -142,6 +154,36 @@ export function createServer(_config: AppConfig, pool?: Pool): Express {
       console.error('POST /review-queue/:authId/resolve failed', err);
       res.status(500).json({ error: 'internal error resolving review queue item' });
     }
+  });
+
+  // Manual/retry trigger for Layer B (Technical Build Spec §5) — covers
+  // cases where motivation text was added after submission, or the LLM
+  // endpoint wasn't configured yet at auto-trigger time.
+  app.post('/review-queue/:authId/triage', async (req, res) => {
+    if (!llmClient) {
+      res.status(503).json({ error: 'Layer B is not configured (no LAYER_B_LLM_ENDPOINT_URL set)' });
+      return;
+    }
+    try {
+      const suggestion = await triageRoutedCase(requireDb(), llmClient, req.params.authId ?? '');
+      res.status(200).json(suggestion);
+    } catch (err) {
+      if (err instanceof LayerBNotApplicableError) {
+        const status = err.code === 'AUTH_DECISION_NOT_FOUND' ? 404 : 400;
+        res.status(status).json({ error: err.message, code: err.code });
+        return;
+      }
+      console.error('POST /review-queue/:authId/triage failed', err);
+      res.status(500).json({ error: 'internal error running Layer B triage' });
+    }
+  });
+
+  // Labelled training data for future Layer-B model improvement
+  // (Technical Build Spec §5.2) — every human decision on a routed case,
+  // logged from day one, whether or not Layer B ever suggested anything.
+  app.get('/training-data', async (_req, res) => {
+    const examples = await getTrainingExamples(requireDb());
+    res.json(examples);
   });
 
   // Screen 1 autocomplete (Implementation Companion §C.2) — every code
